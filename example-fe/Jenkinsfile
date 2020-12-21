@@ -7,13 +7,17 @@ pipeline {
     agent any;
     stages {
        stage("build & SonarQube analysis") {
-   steps {
-       script {
-           withSonarQubeEnv("Sonar") {
-           sh "/usr/local/sonar/bin/sonar-scanner"
-               }
-           }
-       }
+
+            environment {
+                scannerHome = tool 'sonarqube'
+            }
+            steps {
+                script {
+                    withSonarQubeEnv("sonar-aws") {
+                        sh "${scannerHome}/bin/sonar-scanner"
+                    }
+                }
+            }
       }
 
         stage('Build') {
