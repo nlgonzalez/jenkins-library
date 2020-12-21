@@ -6,14 +6,17 @@ node {
 pipeline {
     agent any;
     stages {
+       stage("build & SonarQube analysis") {
+   steps {
+       script {
+           withSonarQubeEnv("Sonar") {
+           sh "/usr/local/sonar/bin/sonar-scanner"
+               }
+           }
+       }
+      }
+
         stage('Build') {
-            when {
-                beforeAgent true
-                anyOf {
-                    branch 'develop';
-                    branch 'master'
-                }
-            }
             steps {
                sh 'npm i '
                sh 'npm run build'
