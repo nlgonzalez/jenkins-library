@@ -1,0 +1,29 @@
+stage 'Init'
+node {
+   checkout scm
+   sh 'echo $ BRANCH_NAME'
+}
+pipeline {
+    agent any;
+    stages {
+        stage('Build') {
+            when {
+                beforeAgent true
+                anyOf {
+                    branch 'develop';
+                    branch 'master'
+                }
+            }
+            steps {
+               sh 'npm i '
+               sh 'npm run build'
+            }
+            post {
+                success {
+                    archiveArtifacts 'build/**/*'
+                }
+            }
+        }
+
+    }
+}
