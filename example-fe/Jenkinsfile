@@ -6,6 +6,22 @@ node {
 pipeline {
     agent any;
     stages {
+
+        stage("Test") {
+            environment {
+                CI = true
+            }
+            steps {
+               sh 'npm i '
+               sh 'npm test'
+            }
+            post {
+                success{
+                    publishChecks name: 'Test', title: 'Automated Tests'
+                }
+            }
+        }
+
        stage("SonarQube analysis") {
 
             environment {
@@ -26,21 +42,8 @@ pipeline {
                     publishChecks name: 'Sonar', title: 'Sonar Analysis'
                 }
             }
-      }
-    stage("Test") {
-            environment {
-                CI = true
-            }
-            steps {
-               sh 'npm i '
-               sh 'npm test'
-            }
-            post {
-                success{
-                    publishChecks name: 'Test', title: 'Automated Tests'
-                }
-            }
-      }
+        }
+
 
         stage('Build') {
             steps {
