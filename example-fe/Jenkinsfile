@@ -26,7 +26,7 @@ pipeline {
       }
     stage("Test") {
             environment {
-                scannerHome = tool 'sonarqube'
+                CI = true
             }
             steps {
                sh 'npm i '
