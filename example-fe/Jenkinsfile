@@ -6,7 +6,7 @@ node {
 pipeline {
     agent any;
     stages {
-       stage("build & SonarQube analysis") {
+       stage("SonarQube analysis") {
 
             environment {
                 scannerHome = tool 'sonarqube'
@@ -24,10 +24,23 @@ pipeline {
                 }
             }
       }
+    stage("Test") {
+            environment {
+                scannerHome = tool 'sonarqube'
+            }
+            steps {
+               sh 'npm i '
+               sh 'npm test'
+            }
+            post {
+                success{
+                    publishChecks name: 'Test', title: 'Automated Tests'
+                }
+            }
+      }
 
         stage('Build') {
             steps {
-               sh 'npm i '
                sh 'npm run build'
             }
             post {
