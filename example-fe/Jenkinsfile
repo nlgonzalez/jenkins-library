@@ -12,13 +12,16 @@ pipeline {
                 scannerHome = tool 'sonarqube'
             }
             steps {
-                withChecks(name: 'Sonar') {
                 script {
                     withSonarQubeEnv("sonar-aws") {
                         sh "${scannerHome}/bin/sonar-scanner"
                     }
                 }
             }
+            post {
+                success{
+                    publishChecks name: 'Sonar', title: 'Sonar Analysis'
+                }
             }
       }
 
