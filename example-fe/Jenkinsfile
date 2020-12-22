@@ -41,9 +41,11 @@ pipeline {
             }
             post {
                 success{
+                    publishChecks name: 'Sonar', title: 'Sonar Analysis'
+                }
+                failure {
                     publishChecks conclusion: FAILURE, status: COMPLETED, name: 'Sonar', title: 'Sonar Analysis'
                 }
-                
             }
         }
 
