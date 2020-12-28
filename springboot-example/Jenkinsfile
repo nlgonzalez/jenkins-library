@@ -1,0 +1,33 @@
+stage 'Init'
+node {
+   checkout scm
+   sh 'echo $ BRANCH_NAME'
+}
+pipeline {
+    agent any;
+    stages {
+        stage("Compilation and Analysis") {
+            parallel 'Compilation': {
+                sh "./mvn clean install -DskipTests"
+            }, 'Static Analysis': {
+                stage("Checkstyle") {
+                    environment {
+                        scannerHome = tool 'sonarqube'
+                    }
+                    steps {
+                        script {
+                            withSonarQubeEnv("sonar-aws") {
+                                sh "${scannerHome}/bin/sonar-scanner"
+                            }
+                        }
+                        timeout(time: 1, unit: 'HOURS') {
+                                withSonarQubeEnv("sonar-aws") {
+                                    waitForQualityGate abortPipeline: true
+                                }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
