@@ -8,9 +8,9 @@ pipeline {
     stages {
         stage("Compilation and Analysis") {
             parallel{
-            stage('Compilation') {
-                sh "./mvn clean install -DskipTests"
-            }, 
+                stage('Compilation') {
+                    sh "./mvn clean install -DskipTests"
+                }
                 stage("Static Analysis") {
                     environment {
                         scannerHome = tool 'sonarqube'
