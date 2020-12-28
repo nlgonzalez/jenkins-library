@@ -8,7 +8,7 @@ pipeline {
     stages {
             stage('Compilation') {
                 steps {
-                    withMaven{
+                    withMaven(){
                         sh "mvn clean install -DskipTests"
                     }
                 }
