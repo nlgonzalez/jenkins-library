@@ -8,7 +8,7 @@ pipeline {
     stages {
             stage('Compilation') {
                 steps {
-                    withMaven('maven'){
+                    withMaven(maven:'maven'){
                         sh "mvnw clean install -DskipTests"
                     }
                 }
