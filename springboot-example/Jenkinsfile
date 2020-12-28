@@ -9,7 +9,9 @@ pipeline {
         stage("Compilation and Analysis") {
             parallel{
                 stage('Compilation') {
-                    sh "./mvn clean install -DskipTests"
+                    steps {
+                        sh "./mvn clean install -DskipTests"
+                    }
                 }
                 stage("Static Analysis") {
                     environment {
