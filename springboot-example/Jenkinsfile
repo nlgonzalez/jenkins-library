@@ -7,9 +7,10 @@ pipeline {
     agent any;
     stages {
         stage("Compilation and Analysis") {
-            parallel 'Compilation': {
+            parallel ('Compilation': {
                 sh "./mvn clean install -DskipTests"
-            }, 'Static Analysis': {
+            }, 
+            'Static Analysis': {
                 stage("Checkstyle") {
                     environment {
                         scannerHome = tool 'sonarqube'
@@ -28,6 +29,7 @@ pipeline {
                     }
                 }
             }
+            )
         }
     }
 }
