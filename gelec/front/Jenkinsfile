@@ -1,12 +1,18 @@
-stage 'Init'
-node {
-   checkout scm
-   sh 'echo $ BRANCH_NAME'
-}
 pipeline {
-    agent any;
+    agent { label 'maven' }
+    options {
+        office365ConnectorWebhooks([[
+                    startNotification: true,
+                    notifySuccess:true,
+                    notifyAborted:false,
+                    notifyNotBuilt:false,
+                    notifyUnstable:true,
+                    notifyFailure:true,
+                    url: 'https://outlook.office.com/webhook/97ff97f5-b5b6-47bf-8b87-a5303cfdb12d@521e430f-ba3c-4d47-9f97-16b945b0a850/JenkinsCI/785447a441c84a12b33ecc6d8150d959/dc81ee26-68e3-4127-a13f-1d6c9a472eb6'
+            ]]
+        )
+    }
     stages {
-
         stage("Test") {
             environment {
                 CI = true
@@ -25,23 +31,16 @@ pipeline {
 
             }
         }
-
-       stage("SonarQube analysis") {
-
-            environment {
-                scannerHome = tool 'sonarqube'
-            }
+        stage("SonarQube analysis") {
             steps {
                 script {
-                    withSonarQubeEnv("sonar-aws") {
-                        sh "${scannerHome}/bin/sonar-scanner"
+                    withSonarQubeEnv("Sonar-OCP") {
+                        sh "/usr/local/sonar/bin/sonar-scanner -D'sonar.branch.name=${BRANCH_NAME}'"
                     }
                 }
-              timeout(time: 1, unit: 'HOURS') {
-                    withSonarQubeEnv("sonar-aws") {
-                        waitForQualityGate abortPipeline: true
-                    }
-              }
+                withSonarQubeEnv("Sonar-OCP") {
+                    waitForQualityGate abortPipeline: true
+                }
             }
             post {
                 success{
@@ -52,8 +51,6 @@ pipeline {
                 }
             }
         }
-
-
         stage('Build') {
             steps {
                sh 'npm run build'
@@ -61,7 +58,12 @@ pipeline {
             post {
                 success {
                     archiveArtifacts 'build/**/*'
+                    publishChecks name: 'Build', title: 'Build'
                 }
+                failure {
+                    publishChecks conclusion: 'FAILURE', status: 'COMPLETED', name: 'Build', title: 'Build'
+                }
+
             }
         }
 

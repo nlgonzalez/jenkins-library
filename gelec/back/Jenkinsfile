@@ -1,0 +1,80 @@
+
+pipeline {
+    agent { label 'maven' }
+
+    options {
+        office365ConnectorWebhooks([[
+                    startNotification: true,
+                    notifySuccess:true,
+                    notifyAborted:false,
+                    notifyNotBuilt:false,
+                    notifyUnstable:true,
+                    notifyFailure:true,
+                    url: 'https://outlook.office.com/webhook/97ff97f5-b5b6-47bf-8b87-a5303cfdb12d@521e430f-ba3c-4d47-9f97-16b945b0a850/JenkinsCI/785447a441c84a12b33ecc6d8150d959/dc81ee26-68e3-4127-a13f-1d6c9a472eb6'
+            ]]
+        )
+    }
+
+    stages {
+        stage('Test') {
+            steps {               
+                configFileProvider([configFile(fileId: 'b98d0ee7-02b2-4051-99c0-d88cd5b20c66', variable: 'MAVEN_GLOBAL_SETTINGS')]) {
+                    sh 'mvn -gs $MAVEN_GLOBAL_SETTINGS -B test'
+                }
+            }
+            post {
+                success{
+                    publishChecks name: 'Test', title: 'Unit Tests'
+                }
+                failure {
+                    publishChecks conclusion: 'FAILURE', status: 'COMPLETED', name: 'Test', title: 'Unit Tests'
+                }
+            }
+        }
+        stage('Build') {
+            steps {               
+                configFileProvider([configFile(fileId: 'b98d0ee7-02b2-4051-99c0-d88cd5b20c66', variable: 'MAVEN_GLOBAL_SETTINGS')]) {
+                    sh 'mvn -gs $MAVEN_GLOBAL_SETTINGS -B -DskipTests clean package'
+                }
+            }
+            post {
+                success {
+                    archiveArtifacts 'target/*.war'
+                }
+            }
+        }
+        stage("SonarQube analysis") {
+            steps {
+                script {
+                    withSonarQubeEnv("Sonar-OCP") {
+                        sh "/usr/local/sonar/bin/sonar-scanner -D'sonar.branch.name=${BRANCH_NAME}'"
+                    }
+                }
+                withSonarQubeEnv("Sonar-OCP") {
+                    waitForQualityGate abortPipeline: true
+                }
+            }
+            post {
+                success{
+                    publishChecks name: 'Sonar', title: 'Sonar Analysis'
+                }
+                failure {
+                    publishChecks conclusion: 'FAILURE', status: 'COMPLETED', name: 'Sonar', title: 'Sonar Analysis'
+                }
+            }
+        }
+        stage('Publish') {
+            when {
+                anyOf {
+                    branch 'develop';
+                }
+            }
+            steps {       
+                script{
+                    def pom = readMavenPom file: "pom.xml";
+                    nexusPublisher nexusInstanceId: 'NexusRepo', nexusRepositoryId: 'thirdparty', packages: [[$class: 'MavenPackage', mavenAssetList: [[classifier: '', extension: '', filePath: 'target/GELEC.war']], mavenCoordinate: [artifactId: "${pom.artifactId}", groupId: "${pom.groupId}", packaging: "${pom.packaging}", version: "${pom.version}"]]]
+                }        
+            }
+        }
+    }
+}
