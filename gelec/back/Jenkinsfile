@@ -1,7 +1,10 @@
-
 pipeline {
     agent { label 'maven' }
-
+    environment {
+        TEAMS_URL = 'https://outlook.office.com/webhook/97ff97f5-b5b6-47bf-8b87-a5303cfdb12d@521e430f-ba3c-4d47-9f97-16b945b0a850/JenkinsCI/785447a441c84a12b33ecc6d8150d959/dc81ee26-68e3-4127-a13f-1d6c9a472eb6'
+        EMAIL_RECIPIENTS  = 'nicolas@ingenia.la'
+        MAVEN_CONFIG_FILE_ID = 'b98d0ee7-02b2-4051-99c0-d88cd5b20c66'
+    }
     options {
         office365ConnectorWebhooks([[
                     startNotification: true,
@@ -10,40 +13,57 @@ pipeline {
                     notifyNotBuilt:false,
                     notifyUnstable:true,
                     notifyFailure:true,
-                    url: 'https://outlook.office.com/webhook/97ff97f5-b5b6-47bf-8b87-a5303cfdb12d@521e430f-ba3c-4d47-9f97-16b945b0a850/JenkinsCI/785447a441c84a12b33ecc6d8150d959/dc81ee26-68e3-4127-a13f-1d6c9a472eb6'
+                    url: env.TEAMS_URL
             ]]
         )
     }
-
     stages {
         stage('Test') {
             steps {               
-                configFileProvider([configFile(fileId: 'b98d0ee7-02b2-4051-99c0-d88cd5b20c66', variable: 'MAVEN_GLOBAL_SETTINGS')]) {
+                configFileProvider([configFile(fileId: env.MAVEN_CONFIG_FILE_ID, variable: 'MAVEN_GLOBAL_SETTINGS')]) {
                     sh 'mvn -gs $MAVEN_GLOBAL_SETTINGS -B test'
                 }
             }
             post {
                 success{
-                    publishChecks name: 'Test', title: 'Unit Tests'
+                    publishChecks name: 'Test', title: 'Unit Tests', detailsURL:BUILD_URL
                 }
                 failure {
-                    publishChecks conclusion: 'FAILURE', status: 'COMPLETED', name: 'Test', title: 'Unit Tests'
+                    publishChecks conclusion: 'FAILURE', status: 'COMPLETED', name: 'Test', title: 'Unit Tests', detailsURL:env.BUILD_URL
+                    emailext (
+						to: env.EMAIL_RECIPIENTS,
+						subject: "FAILURE: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]'",
+						body: """<p>FAILURE: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]':</p>
+						<p>Check console output at &QUOT;<a href='${env.BUILD_URL}'>${env.JOB_NAME} [${env.BUILD_NUMBER}]</a>&QUOT;</p>""",
+						recipientProviders: [[$class: 'DevelopersRecipientProvider']]
+					)
                 }
             }
         }
         stage('Build') {
             steps {               
-                configFileProvider([configFile(fileId: 'b98d0ee7-02b2-4051-99c0-d88cd5b20c66', variable: 'MAVEN_GLOBAL_SETTINGS')]) {
+                configFileProvider([configFile(fileId: env.MAVEN_CONFIG_FILE_ID, variable: 'MAVEN_GLOBAL_SETTINGS')]) {
                     sh 'mvn -gs $MAVEN_GLOBAL_SETTINGS -B -DskipTests clean package'
                 }
             }
             post {
-                success {
+                success{
+                    publishChecks name: 'Build', title: 'Maven Build', detailsURL:BUILD_URL
                     archiveArtifacts 'target/*.war'
+                }
+                failure {
+                    publishChecks conclusion: 'FAILURE', status: 'COMPLETED', name: 'Build', title: 'Maven Build', detailsURL:env.BUILD_URL
+                    emailext (
+						to: env.EMAIL_RECIPIENTS,
+						subject: "FAILURE: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]'",
+						body: """<p>FAILURE: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]':</p>
+						<p>Check console output at &QUOT;<a href='${env.BUILD_URL}'>${env.JOB_NAME} [${env.BUILD_NUMBER}]</a>&QUOT;</p>""",
+						recipientProviders: [[$class: 'DevelopersRecipientProvider']]
+					)
                 }
             }
         }
-        stage("SonarQube analysis") {
+        stage("SonarQube Analysis") {
             steps {
                 script {
                     withSonarQubeEnv("Sonar-OCP") {
@@ -56,10 +76,17 @@ pipeline {
             }
             post {
                 success{
-                    publishChecks name: 'Sonar', title: 'Sonar Analysis'
+                    publishChecks name: 'Sonar', title: 'Sonar Analysis', detailsURL:BUILD_URL
                 }
                 failure {
-                    publishChecks conclusion: 'FAILURE', status: 'COMPLETED', name: 'Sonar', title: 'Sonar Analysis'
+                    publishChecks conclusion: 'FAILURE', status: 'COMPLETED', name: 'Sonar', title: 'Sonar Analysis', detailsURL:env.BUILD_URL
+                    emailext (
+						to: env.EMAIL_RECIPIENTS,
+						subject: "FAILURE: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]'",
+						body: """<p>FAILURE: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]':</p>
+						<p>Check console output at &QUOT;<a href='${env.BUILD_URL}'>${env.JOB_NAME} [${env.BUILD_NUMBER}]</a>&QUOT;</p>""",
+						recipientProviders: [[$class: 'DevelopersRecipientProvider']]
+					)
                 }
             }
         }
@@ -67,13 +94,115 @@ pipeline {
             when {
                 anyOf {
                     branch 'develop';
+                    branch 'qa';
                 }
             }
             steps {       
                 script{
                     def pom = readMavenPom file: "pom.xml";
-                    nexusPublisher nexusInstanceId: 'NexusRepo', nexusRepositoryId: 'thirdparty', packages: [[$class: 'MavenPackage', mavenAssetList: [[classifier: '', extension: '', filePath: 'target/GELEC.war']], mavenCoordinate: [artifactId: "${pom.artifactId}", groupId: "${pom.groupId}", packaging: "${pom.packaging}", version: "${pom.version}"]]]
+                    def version = pom.version
+                    // if(BRANCH_NAME == "develop"){
+                    //     version = version + '-SNAPSHOT'
+                    // }
+                    nexusPublisher nexusInstanceId: 'NexusRepo', nexusRepositoryId: 'thirdparty', packages: [[$class: 'MavenPackage', mavenAssetList: [[classifier: '', extension: '', filePath: 'target/GELEC.war']], mavenCoordinate: [artifactId: "${pom.artifactId}", groupId: "${pom.groupId}", packaging: "${pom.packaging}", version: "${version}"]]]
                 }        
+            }
+        }
+        stage('Liquibase Deploy') {
+            when {
+                anyOf {
+                    branch 'develop';
+                    branch 'qa';
+                }
+            }
+            steps {
+                script{
+                    switch(BRANCH_NAME) {
+                        case "develop":
+                            PROPERTIES = readProperties  file: 'src/main/resources/application-dev.properties'
+                            env.DB_CREDENTIALS_NAME = 'gelec_replica_dev'
+                            break
+                        case "qa":
+                            PROPERTIES = readProperties  file: 'src/main/resources/application-qa.properties'
+                            env.DB_CREDENTIALS_NAME = 'gelec_replica_qa'
+                            break
+                        default:
+                            PROPERTIES = readProperties  file: 'src/main/resources/application-dev.properties'
+                            env.DB_CREDENTIALS_NAME = 'gelec_replica_dev'
+                            break
+                    }
+                    env.DB_URL = PROPERTIES['spring.datasource.url']
+                    withCredentials([usernamePassword(credentialsId: "$DB_CREDENTIALS_NAME", passwordVariable: 'DB_CREDENTIALS_PSW', usernameVariable: 'DB_CREDENTIALS_USR')]) {
+                        sh 'liquibase --url="$DB_URL" --classpath=/opt/jdbc_drivers/oracle-11.2.0.4.jar --changeLogFile=changelog.oracle.sql --username=$DB_CREDENTIALS_USR --password=$DB_CREDENTIALS_PSW update'
+                    }
+                }
+            }
+            post {
+                success {
+                    publishChecks name: 'Liquibase Deploy', title: 'Liquibase Deploy', detailsURL:env.BUILD_URL
+                }
+                failure {
+                    publishChecks conclusion: 'FAILURE', status: 'COMPLETED', name: 'Liquibase Deploy', title: 'Liquibase Deploy', detailsURL:env.BUILD_URL
+                    emailext (
+						to: env.EMAIL_RECIPIENTS,
+						subject: "FAILURE: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]'",
+						body: """<p>FAILURE: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]':</p>
+						<p>Check console output at &QUOT;<a href='${env.BUILD_URL}'>${env.JOB_NAME} [${env.BUILD_NUMBER}]</a>&QUOT;</p>""",
+						recipientProviders: [[$class: 'DevelopersRecipientProvider']]
+					)
+                }
+            }
+        }
+        stage('War Deploy') {
+            when {
+                anyOf {
+                    branch 'develop';
+                    branch 'qa';
+                }
+            }
+            steps {
+                // Copy War
+                sshagent(credentials : ['gelec-app-qa']) {
+                    sh 'scp -o StrictHostKeyChecking=no target/GELEC.war gelec@xnetlin1:/opt/tomcat/Tomcat8_GELEC/webapps/GELEC.war'
+                }
+                script{
+                     switch(BRANCH_NAME) {
+                        case "develop":
+                            env.JOB_TEMPLATE = 'RestartTomcat_xnetlin1'
+                            env.TOMCAT_NAME = 'Tomcat8_GELEC'
+                            break
+                        case "qa":
+                            env.JOB_TEMPLATE = 'RestartTomcat_xnetlin1'
+                            env.TOMCAT_NAME = 'Tomcat8_GELEC'
+                            break
+                        default:
+                            env.JOB_TEMPLATE = 'RestartTomcat_xnetlin1'
+                            env.TOMCAT_NAME = 'Tomcat8_GELEC'
+                            break
+                    }
+                }
+                // Restart Tomcat
+                ansibleTower(
+                    towerServer: 'TowerPROD',
+                    templateType: 'job',
+                    jobTemplate: "${JOB_TEMPLATE}",
+                    extraVars: 'ntomcat: "$TOMCAT_NAME"'
+                )
+            }
+            post {
+                success {
+                    publishChecks name: 'War Deploy', title: 'War Deploy', detailsURL:env.BUILD_URL
+                }
+                failure {
+                    publishChecks conclusion: 'FAILURE', status: 'COMPLETED', name: 'War Deploy', title: 'War Deploy', detailsURL:env.BUILD_URL
+                    emailext (
+						to: env.EMAIL_RECIPIENTS,
+						subject: "FAILURE: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]'",
+						body: """<p>FAILURE: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]':</p>
+						<p>Check console output at &QUOT;<a href='${env.BUILD_URL}'>${env.JOB_NAME} [${env.BUILD_NUMBER}]</a>&QUOT;</p>""",
+						recipientProviders: [[$class: 'DevelopersRecipientProvider']]
+					)
+                }
             }
         }
     }
