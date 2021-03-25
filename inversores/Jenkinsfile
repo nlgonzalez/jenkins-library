@@ -1,17 +1,18 @@
 pipeline {
     agent { label 'maven' }
     environment {
-        TEAMS_URL = 'https://outlook.office.com/webhook/97ff97f5-b5b6-47bf-8b87-a5303cfdb12d@521e430f-ba3c-4d47-9f97-16b945b0a850/JenkinsCI/785447a441c84a12b33ecc6d8150d959/dc81ee26-68e3-4127-a13f-1d6c9a472eb6'
+        TEAMS_URL = 'https://edenor.webhook.office.com/webhookb2/fe87b645-70c6-44cd-957a-5bae275bd29e@521e430f-ba3c-4d47-9f97-16b945b0a850/JenkinsCI/020df22fcdaa4c088615abe1cebcf6e4/dc81ee26-68e3-4127-a13f-1d6c9a472eb6'
         EMAIL_RECIPIENTS  = 'nicolas@ingenia.la'
-        ENV = 'dev'
-        ECR_REPO = 'edenor-institucional-ecs-dev'
-        ACCOUNT_PRD = '191130403174'
-        REGION = 'us-east-1'
-        S3_BUCKET="elasticbeanstalk-${REGION}-${ACCOUNT_PRD}"
-        BEANSTALK_APP='ir-ecs-app-dev'
-
+        ENV = getEnv('ENV', env.BRANCH_NAME)
+        ECR_REPO = 'edenor-institucional-ecs'
+        ACCOUNT = getEnv('ACCOUNT', env.BRANCH_NAME)
+        FILESYSTEM_ID = getEnv('FILESYSTEM_ID', env.BRANCH_NAME)
+        REGION = getEnv('REGION', env.BRANCH_NAME)
+        BEANSTALK_APP= getEnv('BEANSTALK_APP', env.BRANCH_NAME)
+        BEANSTALK_ENV= getEnv('BEANSTALK_ENV', env.BRANCH_NAME)
+        AWS_CREDENTIALS = getEnv('AWS_CREDENTIALS', env.BRANCH_NAME)
+        S3_BUCKET= "elasticbeanstalk-${REGION}-${ACCOUNT}"
     }
-    
     options {
         office365ConnectorWebhooks([[
                     startNotification: true,
@@ -28,7 +29,10 @@ pipeline {
         stage("SonarQube Analysis") {
             when {
                 anyOf {
-                    branch 'none';
+                    branch 'develop';
+                    expression {
+                        return BRANCH_NAME =~ /^release-.*/
+                    }
                 }
             }
             steps {
@@ -43,31 +47,34 @@ pipeline {
             }
             post {
                 success{
-                    publishChecks name: 'Sonar', title: 'Sonar Analysis', detailsURL:env.BUILD_URL
+                    withSonarQubeEnv("Sonar-OCP") {
+                        publishChecks name: 'Sonar', title: 'Sonar Analysis', detailsURL:"${env.SONAR_HOST_URL}"
+                    }
                 }
                 failure {
-                    publishChecks conclusion: 'FAILURE', status: 'COMPLETED', name: 'Sonar', title: 'Sonar Analysis', detailsURL:env.BUILD_URL
-                    // emailext (
-					// 	to: env.EMAIL_RECIPIENTS,
-					// 	subject: "FAILURE: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]'",
-					// 	body: """<p>FAILURE: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]':</p>
-					// 	<p>Check console output at &QUOT;<a href='${env.BUILD_URL}'>${env.JOB_NAME} [${env.BUILD_NUMBER}]</a>&QUOT;</p>""",
-					// 	recipientProviders: [[$class: 'DevelopersRecipientProvider']]
-					// )
+                    withSonarQubeEnv("Sonar-OCP") {
+						publishChecks conclusion: 'FAILURE', status: 'COMPLETED', name: 'Sonar', title: 'Sonar Analysis', text: "${env.SONAR_HOST_URL}"
+					}
+                    emailext (
+						to: env.EMAIL_RECIPIENTS,
+						subject: "FAILURE: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]'",
+						body: """<p>FAILURE: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]':</p>
+						<p>Check console output at &QUOT;<a href='${env.BUILD_URL}'>${env.JOB_NAME} [${env.BUILD_NUMBER}]</a>&QUOT;</p>""",
+						recipientProviders: [[$class: 'DevelopersRecipientProvider']]
+					)
                 }
             }
         }
         stage('Build') {
-		            when {
+            when {
                 anyOf {
-                    branch 'none';
-                    // branch 'qa';
+                    branch 'develop';
+                    branch 'qa';
                 }
             }
             steps {
-                sh 'echo Building'
                 script{
-                    docker.build '$ECR_REPO-$ENV:$GIT_COMMIT'
+                    docker.build '$ACCOUNT.dkr.ecr.$REGION.amazonaws.com/$ECR_REPO-$ENV:$GIT_COMMIT'
                 }
             }
             post {
@@ -90,32 +97,16 @@ pipeline {
             when {
                 anyOf {
                     branch 'develop';
-                    // branch 'qa';
+                    branch 'qa';
                 }
             }
             steps { 
-                script{
-                     switch(BRANCH_NAME) {
-                        case "develop":
-                            env.AWS_CREDENTIALS = 'inversorsAWS_dev'
-                            break
-                        case "qa":
-                            env.AWS_CREDENTIALS = 'inversorsAWS_dev'
-                            break
-                        case "prod":
-                            env.AWS_CREDENTIALS = 'inversorsAWS_dev'
-                            break
-                        default:
-                            env.AWS_CREDENTIALS = 'inversorsAWS_dev'
-                            break
-                    }
-                }
-                withAWS(region:env.REGION,credentials:env.AWS_CREDENTIALS) {
+                withAWS(region:env.REGION, credentials:env.AWS_CREDENTIALS) {
 			        script{
                         sh 'echo Publishing'
-                        // def login = ecrLogin()
-			            // sh "${login}"
-                        // sh 'docker push $ACCOUNT_PRD.dkr.ecr.$REGION.amazonaws.com/$ECR_REPO-$ENV:$BITBUCKET_COMMIT'
+                        def login = ecrLogin()
+			            sh "${login}"
+                        sh 'docker push $ACCOUNT.dkr.ecr.$REGION.amazonaws.com/$ECR_REPO-$ENV:$GIT_COMMIT'
                     }
                 }  
             }
@@ -124,53 +115,38 @@ pipeline {
             when {
                 anyOf {
                     branch 'develop';
-                    branch 'qa';
+                    //branch 'qa';
+                    //branch 'master';
                 }
             }
             environment {
-		        def DATESTAMP= "${sh(script:'date +%Y%m%d%H%M%S', returnStdout: true).trim()}"
+		        DATESTAMP= "${sh(script:'date +%Y%m%d%H%M%S', returnStdout: true).trim()}"
                 FILENAME="$DATESTAMP-bitbucket_builds.zip"
             }
-
             steps {
-                script{
-                     switch(BRANCH_NAME) {
-                        case "develop":
-                            env.AWS_CREDENTIALS = 'inversorsAWS_dev'
-                            break
-                        case "qa":
-                            env.AWS_CREDENTIALS = 'inversorsAWS_dev'
-                            break
-                        case "prod":
-                            env.AWS_CREDENTIALS = 'inversorsAWS_dev'
-                            break
-                        default:
-                            env.AWS_CREDENTIALS = 'inversorsAWS_dev'
-                            break
-                    }
-                }
-                withAWS(region:'us-east-1',credentials:env.AWS_CREDENTIALS) {
+                withAWS(region:env.REGION, credentials:env.AWS_CREDENTIALS) {
                     script{
-                        sh 'echo deploying'
-                        // def login = ecrLogin()
-			            // sh "${login}"
-                        sh 'sed -i -e \'s%${ACCOUNT}%\'"$ACCOUNT_PRD"\'%g\' Dockerrun.aws.json'
+                        sh 'sed -i -e \'s%${ACCOUNT}%\'"$ACCOUNT"\'%g\' Dockerrun.aws.json'
                         sh 'sed -i -e \'s%${ECR_REPO}%\'"$ECR_REPO"\'%g\' Dockerrun.aws.json' 
                         sh 'sed -i -e \'s%${ENV}%\'"$ENV"\'%g\' Dockerrun.aws.json' 
                         sh 'sed -i -e \'s%${COMMIT_ID}%\'"$GIT_COMMIT"\'%g\' Dockerrun.aws.json' 
-                        sh 'zip /tmp/\$FILENAME Dockerrun.aws.json .ebextensions'
-                        sh """
-                            echo \$FILENAME
-                        """
-                        ebWaitOnEnvironmentHealth(
-                            applicationName: "${BEANSTALK_APP}",
-                            environmentName: "ir-ecs-dev-dev",
-                            health: "Red",
-                            stabilityThreshold: 0
-                        )
+                        sh 'sed -i -e \'s%${FILESYSTEM_ID}%\'"$FILESYSTEM_ID"\'%g\' Dockerrun.aws.json' 
+
                         s3Upload(bucket:env.S3_BUCKET, path:"${BEANSTALK_APP}/", file:"/tmp/${FILENAME}")
 
-                        // sh 'docker push $ACCOUNT_PRD.dkr.ecr.$REGION.amazonaws.com/$ECR_REPO-$ENV:$BITBUCKET_COMMIT'
+                        sh """
+                            aws elasticbeanstalk create-application-version \
+                                --application-name "$BEANSTALK_APP" \
+                                --version-label "$DATESTAMP" \
+                                --source-bundle "S3Bucket"="$S3_BUCKET","S3Key"="${BEANSTALK_APP}/${FILENAME}"
+                        """
+
+                        sh """
+                            aws elasticbeanstalk update-environment \
+                                --application-name "$BEANSTALK_APP" \
+                                --environment-name "$BEANSTALK_ENV" \
+                                --version-label "$DATESTAMP"
+                        """
                     }
                 }  
 
@@ -181,15 +157,64 @@ pipeline {
                 }
                 failure {
                     publishChecks conclusion: 'FAILURE', status: 'COMPLETED', name: 'Deploy', title: 'Deploy', detailsURL:env.BUILD_URL
-                    // emailext (
-					// 	to: env.EMAIL_RECIPIENTS,
-					// 	subject: "FAILURE: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]'",
-					// 	body: """<p>FAILURE: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]':</p>
-					// 	<p>Check console output at &QUOT;<a href='${env.BUILD_URL}'>${env.JOB_NAME} [${env.BUILD_NUMBER}]</a>&QUOT;</p>""",
-					// 	recipientProviders: [[$class: 'DevelopersRecipientProvider']]
-					// )
+                    emailext (
+						to: env.EMAIL_RECIPIENTS,
+						subject: "FAILURE: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]'",
+						body: """<p>FAILURE: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]':</p>
+						<p>Check console output at &QUOT;<a href='${env.BUILD_URL}'>${env.JOB_NAME} [${env.BUILD_NUMBER}]</a>&QUOT;</p>""",
+						recipientProviders: [[$class: 'DevelopersRecipientProvider']]
+					)
                 }
             }
         }
+    }
+}
+
+
+def getEnv(varName, branchName) {
+    def ENVVARS = [
+        REGION: [
+            develop: 'us-east-1',
+            master: 'us-east-1',
+            qa: 'us-east-1'
+        ],
+        ACCOUNT:[
+            develop: '191130403174',
+            qa: '191130403174',
+            master: '838638170073'
+        ],
+        // Configurar los filesystem
+        FILESYSTEM_ID:[
+            develop: 'fs-1a033099',
+            qa: 'fs-1a033099',
+            master: 'fs-b1936833'
+        ],
+        ENV:[
+            develop: 'dev',
+            qa: 'dev',
+            master: 'dev'
+        ],
+        AWS_CREDENTIALS:[
+            develop: 'inversorsAWS_dev',
+            qa: 'inversorsAWS_dev',
+            master: 'inversorsAWS_dev'
+        ],
+        BEANSTALK_APP: [
+            develop: 'ir-ecs-app-dev',
+            qa: 'ir-ecs-app-dev',
+            master: 'ir-ecs-prod'
+        ],
+        BEANSTALK_ENV: [
+            develop: 'ir-ecs-dev',
+            qa: 'ir-ecs-dev',
+            master: 'institucional-ecs-ir-prod'
+        ]
+    ]
+    def varOptions = ENVVARS[(varName)]
+    def varValue = varOptions[(branchName)]
+    if(varValue){
+        return varValue
+    }else{
+        return varOptions['develop']
     }
 }
